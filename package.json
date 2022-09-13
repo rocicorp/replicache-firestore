@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "replicache": "^11.2.0",
+    "zod": "^3.19.1"
+  }
+}
