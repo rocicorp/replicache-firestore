@@ -7,6 +7,9 @@ import { Todo, TodoUpdate } from "./todo";
 import * as cors from "cors";
 import { createTodo, updateTodo, deleteTodo } from "./mutators";
 
+// Implements the Replicache "push" endpoint.
+// See: https://doc.replicache.dev/server-push and
+// https://doc.replicache.dev/guide/remote-mutations
 export const push = functions.https.onRequest((req, res) => {
   cors({ origin: true })(req, res, async () => {
     const db = admin.firestore();
@@ -71,6 +74,10 @@ export const push = functions.https.onRequest((req, res) => {
       setLastMutationID(db, tx, pushRequest.clientID, lastMutationID);
       return undefined;
     });
+
+    // TODO: Send pokes to all clients connected to spaceID.
+    // See: https://doc.replicache.dev/guide/poke
+    // On Firestore, I assume this would be FCM?
 
     if (errorMessage !== undefined) {
       res.status(400).send(errorMessage);

@@ -6,6 +6,9 @@ import { TodoEntry } from "./todo";
 
 const db = admin.firestore();
 
+// Implements the Replicache "pull" endpoint.
+// See: https://doc.replicache.dev/server-pull and
+// https://doc.replicache.dev/guide/dynamic-pull
 export const pull = functions.https.onRequest(async (req, res) => {
   res.header("Content-Type", "application/json");
 
