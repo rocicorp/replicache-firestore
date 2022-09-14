@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { getTodos, putTodo } from "./data";
+import { QuerySnapshot } from "firebase-admin/firestore";
 
 admin.initializeApp();
 
@@ -28,16 +29,39 @@ export const push = functions.https.onRequest(async (req, res) => {
   res.json("ok");
 });
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export const pull = functions.https.onRequest(async (req, res) => {
   const db = admin.firestore();
-  const todos = await db.runTransaction(
+  res.header("Content-Type", "text/plain");
+  const [t1, t2] = await db.runTransaction(
     async (tx) => {
       const todos = await getTodos(db, tx, "s1", 1);
-      return todos;
+      const id = nanoid();
+      await db
+        .collection("todos")
+        .doc(id)
+        .set({
+          id,
+          spaceID: "s1",
+          version: 2,
+          deleted: false,
+          text: `hello-${Date.now()}`,
+          complete: false,
+        });
+      // just to be sure.
+      await sleep(1000);
+      const todos2 = await getTodos(db, tx, "s1", 1);
+      return [todos, todos2];
     },
     {
       readOnly: true,
     }
   );
-  res.json(todos.docs.map((d) => d.data()));
+  function stringify(snap: QuerySnapshot) {
+    return JSON.stringify(snap.docs.map((d) => d.data()));
+  }
+  res.send(`t1: ${stringify(t1)}\n\nt2: ${stringify(t2)}`);
 });
