@@ -46,11 +46,7 @@ export async function getTodos(
   return await tx.get(query);
 }
 
-export async function createSpace(
-  db: Firestore,
-  tx: Transaction,
-  spaceID: string
-) {
+export function createSpace(db: Firestore, tx: Transaction, spaceID: string) {
   console.log("creating space", spaceID);
   tx.create(db.collection("spaces").doc(spaceID), {
     id: spaceID,
@@ -58,7 +54,7 @@ export async function createSpace(
   });
 }
 
-export async function setCookie(
+export function setVersion(
   db: Firestore,
   tx: Transaction,
   spaceID: string,
@@ -67,7 +63,7 @@ export async function setCookie(
   tx.update(db.collection("spaces").doc(spaceID), { version });
 }
 
-export async function getCookie(
+export async function getVersion(
   db: Firestore,
   tx: Transaction,
   spaceID: string
@@ -76,12 +72,12 @@ export async function getCookie(
   return space.data()?.version ?? undefined;
 }
 
-export async function setLastMutationID(
+export function setLastMutationID(
   db: Firestore,
   tx: Transaction,
   clientID: string,
   lastMutationID: number
-): Promise<void> {
+) {
   tx.set(db.collection("clients").doc(clientID), {
     id: clientID,
     lastMutationID: lastMutationID,
