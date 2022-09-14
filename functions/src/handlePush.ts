@@ -27,6 +27,8 @@ export const push = functions.https.onRequest((req, res) => {
 
     const errorMessage = await db.runTransaction(async (tx) => {
       // Get the previous version for this space and calculate the next one.
+      // We need to mark all the changed entries in the space with this next
+      // version so that pull can find them when looking for changes.
       const prevVersion = await getVersion(db, tx, spaceID);
       if (prevVersion === undefined) {
         return "space does not exist";
@@ -34,8 +36,8 @@ export const push = functions.https.onRequest((req, res) => {
 
       const nextVersion = prevVersion + 1;
 
-      // Get the previous lastMutationID to know what the expected first next
-      // mutation is.
+      // Get the previous lastMutationID. We need this to filter out mutations
+      // that have already been processed (IOW, to make mutations idempotent).
       let lastMutationID =
         (await getLastMutationID(db, tx, pushRequest.clientID)) ?? 0;
 
