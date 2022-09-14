@@ -173,37 +173,71 @@ function deleteTodo(
   tx.set(db.collection("todos").doc(id), entry, { merge: true });
 }
 
-/*
 export const pull = functions.https.onRequest(async (req, res) => {
-  const db = admin.firestore();
-  res.header("Content-Type", "text/plain");
-  const [t1, t2] = await db.runTransaction(
+  res.header("Content-Type", "application/json");
+
+  const spaceID = req.query.spaceID as string;
+  if (!spaceID) {
+    res.status(400).send("spaceID query param required");
+    return;
+  }
+
+  const {
+    clientID,
+    cookie: reqCookie,
+    lastMutationID: reqLastMutationID,
+  } = req.body;
+
+  const txRes = await db.runTransaction(
     async (tx) => {
-      const todos = await getTodos(db, tx, "s1", 1);
-      const id = nanoid();
-      await db
+      const lastMutationID = await getLastMutationID(db, tx, clientID);
+      if (lastMutationID === undefined && reqLastMutationID > 0) {
+        return { error: "Unknown client" };
+      }
+
+      const cookie = await getVersion(db, tx, spaceID);
+      if (cookie === undefined) {
+        return { error: "Unknown space" };
+      }
+
+      const query = db
         .collection("todos")
-        .doc(id)
-        .set({
-          id,
-          spaceID: "s1",
-          version: 2,
-          deleted: false,
-          text: `hello-${Date.now()}`,
-          complete: false,
-        });
-      // just to be sure.
-      await sleep(1000);
-      const todos2 = await getTodos(db, tx, "s1", 1);
-      return [todos, todos2];
+        .where("spaceID", "==", spaceID)
+        .where("version", ">", reqCookie ?? 0);
+      const todos = await tx.get(query);
+      return {
+        cookie,
+        lastMutationID,
+        todos,
+      };
     },
     {
       readOnly: true,
     }
   );
-  function stringify(snap: QuerySnapshot) {
-    return JSON.stringify(snap.docs.map((d) => d.data()));
+
+  if ("error" in txRes) {
+    res.status(400).send(txRes.error);
+    return;
   }
-  res.send(`t1: ${stringify(t1)}\n\nt2: ${stringify(t2)}`);
+
+  const patch = [];
+  const { todos, cookie, lastMutationID } = txRes;
+  for (const doc of todos.docs) {
+    const entry = doc.data() as TodoEntry;
+    const key = `todos/${entry.todo.id}`;
+    if (entry.deleted) {
+      patch.push({ op: "del", key });
+    } else {
+      patch.push({ op: "put", key, value: entry.todo });
+    }
+  }
+
+  const result = {
+    cookie,
+    lastMutationID,
+    patch,
+  };
+
+  res.json(result);
 });
-*/
