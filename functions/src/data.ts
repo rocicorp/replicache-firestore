@@ -1,51 +1,5 @@
 import { Firestore, Transaction } from "firebase-admin/firestore";
 
-export type ReplicacheEntry = {
-  id: string;
-  spaceID: string;
-  deleted: boolean;
-  version: number;
-};
-
-export async function getTodo(
-  db: Firestore,
-  tx: Transaction,
-  id: string
-): Promise<ReplicacheEntry | undefined> {
-  const res = await tx.get(db.collection("todos").doc(id));
-  if (!res.exists) {
-    return undefined;
-  }
-  const entry = res.data() as ReplicacheEntry;
-  if (!entry.deleted) {
-    return undefined;
-  }
-  return entry;
-}
-
-export async function putTodo<T extends ReplicacheEntry>(
-  db: Firestore,
-  tx: Transaction,
-  todo: T
-) {
-  tx.set(db.collection("todos").doc(todo.id), todo, {
-    merge: false,
-  });
-}
-
-export async function getTodos(
-  db: Firestore,
-  tx: Transaction,
-  spaceID: string,
-  newerThan?: number
-) {
-  let query = db.collection("todos").where("spaceID", "==", spaceID);
-  if (newerThan !== undefined) {
-    query = query.where("version", ">", newerThan);
-  }
-  return await tx.get(query);
-}
-
 export function createSpace(db: Firestore, tx: Transaction, spaceID: string) {
   console.log("creating space", spaceID);
   tx.create(db.collection("spaces").doc(spaceID), {
