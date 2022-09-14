@@ -3,73 +3,82 @@ import * as admin from "firebase-admin";
 import { getVersion, setVersion } from "./space";
 import { getLastMutationID, setLastMutationID } from "./client";
 import { Firestore, Transaction } from "firebase-admin/firestore";
-import { Todo, TodoEntry, TodoUpdate } from "./todo";
+import { Todo, TodoUpdate } from "./todo";
+import * as cors from "cors";
+import { createTodo, updateTodo, deleteTodo } from "./mutators";
 
-export const push = functions.https.onRequest(async (req, res) => {
-  const db = admin.firestore();
+export const push = functions.https.onRequest((req, res) => {
+  cors({ origin: true })(req, res, async () => {
+    const db = admin.firestore();
 
-  res.header("Content-Type", "application/json");
+    res.header("Content-Type", "application/json");
 
-  const spaceID = req.query.spaceID as string;
-  if (!spaceID) {
-    res.status(400).send("spaceID query param required");
-    return;
-  }
-
-  // TODO: validate
-  const pushRequest = req.body; // as PushRequest;
-
-  const errorMessage = await db.runTransaction(async (tx) => {
-    const prevVersion = await getVersion(db, tx, spaceID);
-    if (prevVersion === undefined) {
-      return "space does not exist";
+    const spaceID = req.query.spaceID as string;
+    if (!spaceID) {
+      res.status(400).send("spaceID query param required");
+      return;
     }
 
-    const nextVersion = prevVersion + 1;
+    // TODO: validate
+    const pushRequest = req.body; // as PushRequest;
 
-    let lastMutationID =
-      (await getLastMutationID(db, tx, pushRequest.clientID)) ?? 0;
-
-    for (const mutation of pushRequest.mutations) {
-      const expectedMutationID = lastMutationID + 1;
-
-      if (mutation.id < expectedMutationID) {
-        console.log(`skipping already processed mutation: ${mutation.id}`);
-        continue;
+    const errorMessage = await db.runTransaction(async (tx) => {
+      // Get the previous version for this space and calculate the next one.
+      const prevVersion = await getVersion(db, tx, spaceID);
+      if (prevVersion === undefined) {
+        return "space does not exist";
       }
 
-      if (mutation.id > expectedMutationID) {
-        return `mutation out of order: got ${mutation.id} expected ${expectedMutationID}`;
+      const nextVersion = prevVersion + 1;
+
+      // Get the previous lastMutationID to know what the expected first next
+      // mutation is.
+      let lastMutationID =
+        (await getLastMutationID(db, tx, pushRequest.clientID)) ?? 0;
+
+      for (const mutation of pushRequest.mutations) {
+        const expectedMutationID = lastMutationID + 1;
+
+        if (mutation.id < expectedMutationID) {
+          console.log(`skipping already processed mutation: ${mutation.id}`);
+          continue;
+        }
+
+        if (mutation.id > expectedMutationID) {
+          return `mutation out of order: got ${mutation.id} expected ${expectedMutationID}`;
+        }
+
+        try {
+          processMutation(
+            db,
+            tx,
+            mutation.name,
+            mutation.args,
+            spaceID,
+            nextVersion
+          );
+        } catch (e) {
+          // TODO: You probably want to do something more sophisticated here to retain
+          // the original content and tell the user.
+          console.error(`mutation ${mutation} failed, skipping: ${e}`);
+        }
+        lastMutationID = expectedMutationID;
       }
 
-      try {
-        processMutation(
-          db,
-          tx,
-          mutation.name,
-          mutation.args,
-          spaceID,
-          nextVersion
-        );
-      } catch (e) {
-        // TODO: You probably want to do something more sophisticated here to retain
-        // the original content and tell the user.
-        console.error(`mutation ${mutation} failed, skipping: ${e}`);
-      }
-      lastMutationID = expectedMutationID;
+      // Important: version and lastMutationID must be updated transactionally with
+      // mutations.
+      setVersion(db, tx, spaceID, nextVersion);
+      setLastMutationID(db, tx, pushRequest.clientID, lastMutationID);
+      return undefined;
+    });
+
+    if (errorMessage !== undefined) {
+      res.status(400).send(errorMessage);
+      return;
     }
 
-    setVersion(db, tx, spaceID, nextVersion);
-    setLastMutationID(db, tx, pushRequest.clientID, lastMutationID);
-    return undefined;
+    res.json({});
   });
-
-  if (errorMessage !== undefined) {
-    res.status(400).send(errorMessage);
-    return;
-  }
-
-  res.json({});
 });
 
 function processMutation(
@@ -93,46 +102,4 @@ function processMutation(
     default:
       throw new Error(`unknown mutation: ${name}`);
   }
-}
-
-function createTodo(
-  db: Firestore,
-  tx: Transaction,
-  todo: Todo,
-  spaceID: string,
-  version: number
-) {
-  const entry: TodoEntry = {
-    todo,
-    spaceID,
-    deleted: false,
-    version,
-  };
-  tx.create(db.collection("todos").doc(todo.id), entry);
-}
-
-function updateTodo(
-  db: Firestore,
-  tx: Transaction,
-  todo: TodoUpdate,
-  version: number
-) {
-  const entry = {
-    todo,
-    version,
-  };
-  tx.set(db.collection("todos").doc(todo.id), entry, { merge: true });
-}
-
-function deleteTodo(
-  db: Firestore,
-  tx: Transaction,
-  id: string,
-  version: number
-) {
-  const entry = {
-    version,
-    deleted: true,
-  };
-  tx.set(db.collection("todos").doc(id), entry, { merge: true });
 }
